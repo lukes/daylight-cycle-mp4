@@ -21,7 +21,7 @@ Dir.mkdir(DIR)
 
 # Note: Time zones are fucked, fix this.
 # Time.zone = "UTC"
-dates = ["18-1-1", "18-1-2", "18-1-3"]
+dates = ["18-1-1", "18-1-2", "18-1-3", "18-6-1", "18-6-2", "18-6-3"]
 
 dates.each do |date|
   puts "Processing #{date}"
