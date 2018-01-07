@@ -8,12 +8,13 @@ require 'suncalc'
 
 DIR = '.data'
 OUT = 'out.mp4'
-FPS = 100
+FPS = 60 # Best to keep this in base 6
 RES = '1920x1080'
-MINUTES_PER_DAY = 1440
+FRAMES_PER_DAY = FPS * 4
+SECONDS_PER_FRAME = FRAMES_PER_DAY * (1 / 86400.0) # 86400 seconds in a day
 
 # TODO For now, create an image per frame, but in the future we can just
-# generate the frames, and use a manifest to order them for ffmpeg
+# generate 256 frames, and use a manifest to order them for ffmpeg
 
 FileUtils.rm_rf(DIR) if Dir.exists?(DIR)
 Dir.mkdir(DIR)
@@ -29,9 +30,9 @@ dates.each do |date|
   raw = SunCalc.get_times(t+1.day, -36.8485, 174.7633) # This is going back a day for Auckland
   times = Hash[raw.map { |k, v| [k, v.in_time_zone('Auckland')] }]
 
-  dawn = (times[:dawn] - t) / 60
-  noon = (times[:solar_noon] - t) / 60
-  dusk = (times[:dusk] - t) / 60
+  dawn = (times[:dawn] - t) * SECONDS_PER_FRAME
+  noon = (times[:solar_noon] - t) * SECONDS_PER_FRAME
+  dusk = (times[:dusk] - t) * SECONDS_PER_FRAME
 
   dawn_to_noon = noon - dawn
   noon_to_dusk = dusk - noon
@@ -42,7 +43,7 @@ dates.each do |date|
   # Also, instead of a linear transition, the transition should be more parabolic
   # either using easing, or checking the altitude at every frame
 
-  MINUTES_PER_DAY.times do |t|
+  FRAMES_PER_DAY.times do |t|
     n = case t
     when 0...dawn # night to dawn
       # black
@@ -60,7 +61,7 @@ dates.each do |date|
       0
     end
 
-    puts " Making frame #{t+1}/#{MINUTES_PER_DAY}"
+    puts " Making frame #{t+1}/#{FRAMES_PER_DAY}"
     MiniMagick::Tool::Convert.new do |i|
       i.size RES
       i.xc "rgb(#{([n]*3).join(',')})"
