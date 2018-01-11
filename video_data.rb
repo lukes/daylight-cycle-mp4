@@ -2,14 +2,14 @@ require 'active_support/core_ext/time'
 require 'active_support/core_ext/numeric/time'
 # require 'chroma'
 require 'fileutils'
-require 'mini_magick'
-# require 'pry'
+require 'oily_png'
+require 'pry'
 require 'suncalc'
 
 DIR = '.data'
 OUT = 'out.mp4'
 FPS = 60 # Best to keep this in base 6
-RES = '1920x1080'
+RES = { x: 1920, y: 1080 }
 FRAMES_PER_DAY = FPS * 4
 SECONDS_PER_FRAME = FRAMES_PER_DAY * (1 / 86400.0) # 86400 seconds in a day
 
@@ -19,13 +19,19 @@ SECONDS_PER_FRAME = FRAMES_PER_DAY * (1 / 86400.0) # 86400 seconds in a day
 FileUtils.rm_rf(DIR) if Dir.exists?(DIR)
 Dir.mkdir(DIR)
 
+
 # Note: Time zones are fucked, fix this.
 # Time.zone = "UTC"
 dates = ["18-1-1", "18-1-2", "18-1-3", "18-6-1", "18-6-2", "18-6-3"]
+# dates = (Date.parse("18-1-1")..Date.parse("18-12-31"))
 
-dates.each do |date|
+# Or however many days are in the year.
+png = Array.new(dates.length) { Array.new(FRAMES_PER_DAY, 0) }
+
+dates.each_with_index do |date, date_index |
   puts "Processing #{date}"
   t = Time.parse(date)
+  # t = date.to_time
 
   raw = SunCalc.get_times(t+1.day, -36.8485, 174.7633) # This is going back a day for Auckland
   times = Hash[raw.map { |k, v| [k, v.in_time_zone('Auckland')] }]
@@ -51,22 +57,21 @@ dates.each do |date|
     when dawn...noon
       # getting lighter
       # % of light:
-      (256 * (t - dawn) / dawn_to_noon).to_i
+      (255 * (t - dawn) / dawn_to_noon).to_i
     when noon...dusk
       # getting darker
       # % of dark:
-      256 - (256 * ((t - noon) / noon_to_dusk)).to_i
+      255 - (255 * ((t - noon) / noon_to_dusk)).to_i
     else # dusk to night
       # black
       0
     end
 
+    png[date_index][t] = n
+
     puts " Making frame #{t+1}/#{FRAMES_PER_DAY}"
-    MiniMagick::Tool::Convert.new do |i|
-      i.size RES
-      i.xc "rgb(#{([n]*3).join(',')})"
-      i << "#{DIR}/#{date}-#{t.to_s.rjust(4, '0')}.png"
-    end
+    file = "#{DIR}/#{date}-#{t.to_s.rjust(4, '0')}.png"
+    ChunkyPNG::Image.new(RES[:x], RES[:y], ChunkyPNG::Color::rgb(n, n, n)).save(file)
   end
 
 end
@@ -74,3 +79,13 @@ end
 puts "Compiling video..."
 # From https://trac.ffmpeg.org/wiki/Slideshow
 `cd #{DIR}; ffmpeg -framerate #{FPS} -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p ../out.mp4`
+
+puts "Making png..."
+# TODO 365 should be the number of days in the year
+png_image = ChunkyPNG::Image.new(dates.length, FRAMES_PER_DAY, ChunkyPNG::Color::TRANSPARENT)
+png.each_with_index do |row, i|
+  row.each_with_index do |col, j|
+    png_image.set_pixel(i, j, 255-col)
+  end
+end
+png_image.save('out.png')

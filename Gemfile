@@ -2,6 +2,6 @@ source 'https://rubygems.org'
 
 gem 'activesupport'
 # gem 'chroma'
-gem 'mini_magick'
-# gem 'pry'
+gem 'chunky_png'
+gem 'oily_png'
 gem 'suncalc'
