@@ -1,37 +1,45 @@
 require 'active_support/core_ext/time'
 require 'active_support/core_ext/numeric/time'
-# require 'chroma'
 require 'fileutils'
 require 'oily_png'
-require 'pry'
+require 'ostruct'
 require 'suncalc'
 
 DIR = '.data'
-OUT = 'out.mp4'
 FPS = 60 # Best to keep this in base 6
-RES = { x: 1920, y: 1080 }
+RES = OpenStruct.new({ x: 1920, y: 1080 })
 FRAMES_PER_DAY = FPS * 4
 SECONDS_PER_FRAME = FRAMES_PER_DAY * (1 / 86400.0) # 86400 seconds in a day
+FRAMES_PATH = "#{DIR}/#{RES.x}x#{RES.y}"
+SEQUENCE_PATH = "#{DIR}/sequence"
 
-# TODO For now, create an image per frame, but in the future we can just
-# generate 256 frames, and use a manifest to order them for ffmpeg
+# Generate the 256 frames, and use a manifest to order them for ffmpeg
+unless Dir.exists?(FRAMES_PATH)
+  FileUtils.mkdir_p(FRAMES_PATH)
+  puts "Making frames for #{RES.x}x#{RES.y}\n resolution:"
+  (0..255).each do |i|
+    STDOUT.write "\rMaking frame #{i+1}/256"
+    frame = ChunkyPNG::Image.new(RES.x, RES.y, ChunkyPNG::Color::rgb(i, i, i))
+    frame.save("#{FRAMES_PATH}/#{i}.png")
+  end
+end
 
-FileUtils.rm_rf(DIR) if Dir.exists?(DIR)
-Dir.mkdir(DIR)
-
+# Sequence path is where we build our frame sequences with symlinks
+FileUtils.rm_rf(SEQUENCE_PATH) if Dir.exists?(SEQUENCE_PATH)
+Dir.mkdir(SEQUENCE_PATH)
 
 # Note: Time zones are fucked, fix this.
 # Time.zone = "UTC"
-dates = ["18-1-1", "18-1-2", "18-1-3", "18-6-1", "18-6-2", "18-6-3"]
-# dates = (Date.parse("18-1-1")..Date.parse("18-12-31"))
+# dates = ["18-1-1", "18-1-2", "18-1-3", "18-6-1", "18-6-2", "18-6-3"]
+dates = (Date.parse("18-1-1")..Date.parse("18-12-31")).step(7).to_a # 53 .. should probably think about this
 
-# Or however many days are in the year.
-png = Array.new(dates.length) { Array.new(FRAMES_PER_DAY, 0) }
+png = Array.new(dates.count) { Array.new(FRAMES_PER_DAY, 0) }
 
-dates.each_with_index do |date, date_index |
-  puts "Processing #{date}"
-  t = Time.parse(date)
-  # t = date.to_time
+puts "Making sequence:"
+i = 0
+dates.each_with_index do |date, date_index|
+  # t = Time.parse(date)
+  t = date.to_time
 
   raw = SunCalc.get_times(t+1.day, -36.8485, 174.7633) # This is going back a day for Auckland
   times = Hash[raw.map { |k, v| [k, v.in_time_zone('Auckland')] }]
@@ -68,21 +76,24 @@ dates.each_with_index do |date, date_index |
     end
 
     png[date_index][t] = n
+    i += 1
+    STDOUT.write "\rCopying frame #{i}/#{FRAMES_PER_DAY * dates.length}"
 
-    puts " Making frame #{t+1}/#{FRAMES_PER_DAY}"
-    file = "#{DIR}/#{date}-#{t.to_s.rjust(4, '0')}.png"
-    ChunkyPNG::Image.new(RES[:x], RES[:y], ChunkyPNG::Color::rgb(n, n, n)).save(file)
+    # Copy the frame into sequence
+    `cp #{FRAMES_PATH}/#{n}.png #{SEQUENCE_PATH}/#{date}-#{t.to_s.rjust(4, '0')}.png`
   end
-
 end
 
+puts
 puts "Compiling video..."
 # From https://trac.ffmpeg.org/wiki/Slideshow
-`cd #{DIR}; ffmpeg -framerate #{FPS} -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p ../out.mp4`
+`nice -1 ffmpeg -framerate #{FPS} -pattern_type glob -i '#{SEQUENCE_PATH}/*.png' -c:v libx264 -pix_fmt yuv420p out.mp4`
+
+# Clean up sequence files
+FileUtils.rm_rf(SEQUENCE_PATH)
 
 puts "Making png..."
-# TODO 365 should be the number of days in the year
-png_image = ChunkyPNG::Image.new(dates.length, FRAMES_PER_DAY, ChunkyPNG::Color::TRANSPARENT)
+png_image = ChunkyPNG::Image.new(dates.count, FRAMES_PER_DAY, ChunkyPNG::Color::TRANSPARENT)
 png.each_with_index do |row, i|
   row.each_with_index do |col, j|
     png_image.set_pixel(i, j, 255-col)
